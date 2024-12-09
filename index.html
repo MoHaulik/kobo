@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kobo Calendar & To-Do</title>
+<style>
+body,html {
+  margin:0; padding:0; height:100%; font-family:sans-serif; background:#f7f7f7; 
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+}
+.header {
+  width:100%; padding:10px; box-sizing:border-box; background:#e0e0e0; text-align:center;
+}
+.header h1 { margin:0; font-size:20px; }
+.container {
+  width:90%; max-width:600px; margin-top:10px; background:#fff; padding:10px; border-radius:10px;
+  box-sizing:border-box; display:flex; flex-direction:column; gap:10px;
+}
+.date-nav {
+  display:flex; justify-content:space-between; align-items:center;
+  font-size:18px; font-weight:bold; cursor:pointer;
+}
+.to-do-list {
+  border-top:1px solid #ccc; padding-top:10px;
+}
+.task { margin:5px 0; cursor:pointer; }
+.task.completed { text-decoration:line-through; color:gray; }
+.task.need-to-do { color:red; }
+.login-container { margin-top:10px; text-align:center; }
+button {
+  background:#333; color:#fff; padding:5px 10px; border:none; border-radius:5px; cursor:pointer;
+}
+button:active { background:#555; }
+#day-label { cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Kobo Daily Tasks</h1>
+</div>
+<div class="container">
+  <div class="date-nav">
+    <span id="prev-day">&lt;</span>
+    <span id="day-label"></span>
+    <span id="next-day">&gt;</span>
+  </div>
+  <div class="to-do-list" contenteditable="true" id="editor">
+    <div id="daily-frog" class="task need-to-do">🐸 Dagens Tudse</div>
+  </div>
+  <div class="login-container">
+    <button id="loginButton">Log ind med Google</button>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.19.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.19.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.19.1/firebase-database-compat.js"></script>
+<script>
+// Firebase configuration (from previous code in the chat)
+const firebaseConfig = {
+  apiKey: "AIzaSyAoY_XxClJRTUS6OJmaIDvZm014Lx7sXA4",
+  authDomain: "copypaste2000-5776c.firebaseapp.com",
+  databaseURL: "https://copypaste2000-5776c-default-rtdb.firebaseio.com",
+  projectId: "copypaste2000-5776c",
+  storageBucket: "copypaste2000-5776c.appspot.com",
+  messagingSenderId: "733249598043",
+  appId: "1:733249598043:web:6648bfe9b408127aa6457e",
+  measurementId: "G-M16KES53R6"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+
+const editor = document.getElementById('editor');
+const loginButton = document.getElementById('loginButton');
+const dayLabel = document.getElementById('day-label');
+const prevDay = document.getElementById('prev-day');
+const nextDay = document.getElementById('next-day');
+
+let userId = null;
+let currentIndex = 0;
+const year = 2024;
+const startMonth = 9; 
+const startDate = 3;
+const endMonth = 11;
+const danishDays = ['Søndag','Mandag','Tirsdag','Onsdag','Torsdag','Fredag','Lørdag'];
+const danishMonths = ['Januar','Februar','Marts','April','Maj','Juni','Juli','August','September','Oktober','November','December'];
+
+const canvasKeys = [];
+let totalDays = 0;
+for (let m = startMonth; m <= endMonth; m++) {
+  const daysInM = new Date(year,m+1,0).getDate();
+  const sd = (m===startMonth)?startDate:1;
+  for (let d = sd; d<=daysInM; d++) {
+    canvasKeys.push(`kobo${year}${(m+1).toString().padStart(2,'0')}${d.toString().padStart(2,'0')}`);
+    totalDays++;
+  }
+}
+
+(function setCurrentDayIndex(){
+  const today = new Date();
+  const start = new Date(year,startMonth,startDate);
+  if (today >= start && today <= new Date(year,endMonth+1,0)) {
+    const diff = Math.floor((today-start)/(1000*3600*24));
+    currentIndex = Math.min(diff,totalDays-1);
+  } else {
+    currentIndex = 0;
+  }
+})();
+
+function signInWithGoogle(){
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(provider).then(r=>{
+    userId = r.user.uid;
+    loadData();
+  }).catch(e=>{alert("Login failed:"+e.message)});
+}
+
+auth.onAuthStateChanged(u=>{
+  if(u){userId=u.uid;loadData();}
+});
+
+loginButton.addEventListener('click',signInWithGoogle);
+
+function getDateFromIndex(idx){
+  let cDay = startDate;
+  let cMonth = startMonth;
+  for (let i=0;i<idx;i++){
+    cDay++;
+    if(cDay>new Date(year,cMonth+1,0).getDate()){
+      cDay=1;cMonth++;
+    }
+  }
+  return new Date(year,cMonth,cDay);
+}
+
+function updateDayLabel(){
+  const d = getDateFromIndex(currentIndex);
+  dayLabel.textContent = `${danishDays[d.getDay()]} ${d.getDate()}. ${danishMonths[d.getMonth()]}`;
+}
+
+function loadData(){
+  if(!userId)return;
+  const key = canvasKeys[currentIndex];
+  db.ref(`koboUsers/${userId}/toDoList/${key}`).once('value',snap=>{
+    const val = snap.val();
+    editor.innerHTML = val? val : `<div id="daily-frog" class="task need-to-do">🐸 Dagens Tudse</div>`;
+  });
+}
+
+function saveData(){
+  if(!userId)return;
+  const key = canvasKeys[currentIndex];
+  db.ref(`koboUsers/${userId}/toDoList/${key}`).set(editor.innerHTML);
+}
+
+function showPrevDay(){
+  saveData();
+  currentIndex = currentIndex===0? canvasKeys.length-1: currentIndex-1;
+  updateDayLabel();loadData();
+}
+
+function showNextDay(){
+  saveData();
+  currentIndex = currentIndex===canvasKeys.length-1?0:currentIndex+1;
+  updateDayLabel();loadData();
+}
+
+prevDay.addEventListener('click',showPrevDay);
+nextDay.addEventListener('click',showNextDay);
+
+editor.addEventListener('click',e=>{
+  if(e.target.classList.contains('task')){
+    e.target.classList.toggle('completed');
+    saveData();
+  }
+});
+
+editor.addEventListener('keyup',e=>{
+  if(e.key==='.'||e.key==='!'){
+    handleSpecialChar(e.key);
+  }
+});
+
+function handleSpecialChar(char){
+  const sel = window.getSelection();
+  if(!sel.rangeCount)return;
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer;
+  if(node.nodeType!==Node.TEXT_NODE)return;
+  const text = node.textContent;
+  const idx = text.lastIndexOf(char);
+  if(idx===text.length-1){
+    const before = text.slice(0,idx).trim();
+    if(!before)return;
+    const span = document.createElement('div');
+    span.className='task clickable';
+    if(char==='!')span.classList.add('need-to-do');
+    span.textContent=before;
+    node.parentNode.replaceChild(span,node);
+    const br = document.createElement('br');
+    span.parentNode.insertBefore(br,span.nextSibling);
+    const newRange = document.createRange();
+    newRange.setStartAfter(br);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    saveData();
+  }
+}
+
+window.addEventListener('beforeunload',saveData);
+
+updateDayLabel();
+</script>
+</body>
+</html>
